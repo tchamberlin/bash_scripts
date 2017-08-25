@@ -1,0 +1,115 @@
+#!/bin/bash
+
+# Log the given command both to the console and to disk, with separate
+# files for stdout and stderr
+
+cleanup() {
+    if [ -f "$time_output" ]; then
+        rm "$time_output"
+    fi
+}
+
+say() {
+    echo "$1" | festival --tts
+}
+
+play_sound() {
+    failure_sound=/usr/share/sounds/k3b_error1.wav
+    success_sound=/usr/share/sounds/k3b_success1.wav
+    if [ "$1" -eq 0 ]; then
+        sound=$success_sound
+    else
+        sound=$failure_sound
+    fi
+
+    if [ -f "$sound" ]; then
+        # TODO: lcl should probably not be here...
+        if ! lcl paplay $sound; then
+            echo "WARNING: Could not play sound $sound on host $(hostname)" >&2
+        fi
+    else
+        echo "WARNING: Could not find sound file $sound" >&2
+        return 1
+    fi
+
+}
+
+trap cleanup EXIT
+
+# Check that there is at least one argument given
+if [[ $# -eq 0 ]]; then
+    echo "usage: $(basename "$0") command" >&2
+    exit 1
+fi
+
+# If we have a failure in our pipe, return the error code for the failed
+# command, not of this function
+set -o pipefail
+
+# Get the current time in a pretty format
+now=$(date +%Y-%m-%d_%T)
+
+# Create the log directory for our three logfiles (solely to keep things organized)
+log_dir="$1__${now}__logs"
+if ! mkdir "$log_dir"; then
+    echo "ERROR: Could not create log directory; check your permissions to write in $(pwd)" >&2
+    exit 1
+fi
+
+# Create our log filenames; one each for stdout and stderr, and one for both
+stdout_log="$log_dir/stdout.log"
+stderr_log="$log_dir/stderr.log"
+combined_log="$log_dir/combined.log"
+
+# Create our log files with this line explaining what's going on
+echo "---Logging the results of '$*' to '$log_dir/{$(basename "$stdout_log"),$(basename "$stderr_log"),$(basename "$combined_log")}'---" \
+    | tee "$stdout_log" "$stderr_log" "$combined_log"
+
+# Alright, what's going on here?
+# The first line passes every argument that was passed to this function 
+#   to the `time` command
+#
+# The second line redirects all output streams to the awk command,
+#   which prepends the date/time to the line, then flushes the buffer with 
+#   the system("") call. Flushing the buffer is important for accurate 
+#   timestamps, and for the output to be streamed smoothly instead of in 
+#   buffered chunks. The results of the awk command are piped to the tee 
+#   command, which directs them to the terminal and to the combined
+#   logfile
+#
+# The third line redirects stdout to another tee command, which directs
+#   it to the terminal and to the stdout logfile
+#
+# The fourth line redirects stderr to awk, which colors the output red.
+#   The output is then piped to tee, which outputs to the terminal and
+#   to the stderr logfile.
+#
+# The end result of all of this is that we can see all output in the
+#   terminal (timestamped and with stderr colored red), and we get all of
+#   this same output in a combined logfile as well as stdour and stderr
+#   in their own respective logfiles.
+# TODO: timestamps are SOMETIMES colored for stderr, but not always -- why?
+time_output="/tmp/$USER/time_output"
+command /usr/bin/time --output="$time_output" --portability -- "$@" \
+    &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; system("") }' | tee -a "$combined_log") \
+    1> >(awk '{ print $0; system("") }' | tee -a "$stdout_log" >&1) \
+    2> >(awk '{ print "\033[01;31m"$0"\033[0m" }; system("")' | tee -a "$stderr_log" >&2)
+# Save the return value of `command` (which is the return value from `time`,
+#   which is the return value from the _actual_ command)
+cmd_ret_val=$?
+
+echo -e "---\nTiming information:" | tee -a "$stdout_log" "$stderr_log" "$combined_log"
+tee -a "$stdout_log" "$stderr_log" "$combined_log" < "$time_output"
+
+play_sound $cmd_ret_val &
+
+if [ $cmd_ret_val -eq 0 ]; then
+    say "SUCCESS! logging $1 has completed successfully"
+else
+    say "FAILURE! logging command $1 has failed, you sad, sad little man"
+fi
+
+
+
+# Return the value of the user's command
+exit $cmd_ret_val

@@ -1,0 +1,8 @@
+#!/bin/bash
+original_host=$(who am i | awk '{print $5}' | tr -d '()')
+if host "$original_host" &> /dev/null; then
+    # shellcheck disable=SC2029
+    ssh -q "$original_host" "cd $(pwd); bash --login -c \"$*\""
+else
+    "$@"
+fi

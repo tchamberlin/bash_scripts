@@ -1,0 +1,12 @@
+#! /bin/bash
+
+echo "Odd numbers are bad! Every odd number is an 'error', so it should be red"
+
+for foo in 1 2 3 4 5; do
+    if [ $((foo % 2)) -eq 0 ] ; then
+        echo "$foo"
+    else
+        echo "$foo" >&2
+    fi
+    sleep 1
+done
