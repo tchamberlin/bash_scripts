@@ -3,27 +3,41 @@
 # Log the given command both to the console and to disk, with separate
 # files for stdout and stderr
 
+# If we have a failure in our pipe, return the error code for the failed
+# command, not of this function
+set -o pipefail
+# Execute cleanup when program exits, under whatever conditions that may be
+trap cleanup EXIT
+
 cleanup() {
     if [ -f "$time_output" ]; then
         rm "$time_output"
     fi
 }
 
-say() {
-    echo "$1" | festival --tts
-}
+alert() {
+    # Audibly alert based on the given command and exit code
+    if [ $# -ne 2 ]; then
+        echo "usage: alert cmd exit_code"
+        return 1
+    fi
+    local cmd; cmd="$1"
+    local code; code="$2"
 
-play_sound() {
-    failure_sound=/usr/share/sounds/k3b_error1.wav
-    success_sound=/usr/share/sounds/k3b_success1.wav
-    if [ "$1" -eq 0 ]; then
-        sound=$success_sound
+    local success_sound; success_sound=/usr/share/sounds/k3b_success1.wav
+    local success_sentence; success_sentence="SUCCESS logging $cmd has completed successfully"
+    local failure_sound; failure_sound=/usr/share/sounds/k3b_error1.wav
+    local failure_sentence; failure_sentence="FAILURE logging command $cmd has failed, you sad, sad little man"
+
+    if [ "$code" -eq 0 ]; then
+        local sound; sound=$success_sound
+        local sentence; sentence=$success_sentence
     else
-        sound=$failure_sound
+        local sound; sound=$failure_sound
+        local sentence; sentence=$failure_sentence
     fi
 
     if [ -f "$sound" ]; then
-        # TODO: lcl should probably not be here...
         if ! lcl paplay $sound; then
             echo "WARNING: Could not play sound $sound on host $(hostname)" >&2
         fi
@@ -32,19 +46,15 @@ play_sound() {
         return 1
     fi
 
+    echo "$sentence" | lcl festival --tts
 }
 
-trap cleanup EXIT
 
 # Check that there is at least one argument given
 if [[ $# -eq 0 ]]; then
     echo "usage: $(basename "$0") command" >&2
     exit 1
 fi
-
-# If we have a failure in our pipe, return the error code for the failed
-# command, not of this function
-set -o pipefail
 
 # Get the current time in a pretty format
 now=$(date +%Y-%m-%d_%T)
@@ -62,54 +72,48 @@ stderr_log="$log_dir/stderr.log"
 combined_log="$log_dir/combined.log"
 
 # Create our log files with this line explaining what's going on
-echo "---Logging the results of '$*' to '$log_dir/{$(basename "$stdout_log"),$(basename "$stderr_log"),$(basename "$combined_log")}'---" \
+echo "---Logging the results of '$ $*' to '$log_dir/{$(basename "$stdout_log"),$(basename "$stderr_log"),$(basename "$combined_log")}'---" \
     | tee "$stdout_log" "$stderr_log" "$combined_log"
 
 # Alright, what's going on here?
-# The first line passes every argument that was passed to this function 
+# The first line passes every argument that was passed to this function
 #   to the `time` command
 #
 # The second line redirects all output streams to the awk command,
-#   which prepends the date/time to the line, then flushes the buffer with 
-#   the system("") call. Flushing the buffer is important for accurate 
-#   timestamps, and for the output to be streamed smoothly instead of in 
-#   buffered chunks. The results of the awk command are piped to the tee 
+#   which prepends the date/time to the line, then flushes the buffer with
+#   the system("") call. Flushing the buffer is important for accurate
+#   timestamps, and for the output to be streamed smoothly instead of in
+#   buffered chunks. The results of the awk command are piped to the tee
 #   command, which directs them to the terminal and to the combined
 #   logfile
 #
-# The third line redirects stdout to another tee command, which directs
+# The third line redirects stdout to awk, which does nothing except flush
+#   the buffer and then pass it along to a tee command, which directs
 #   it to the terminal and to the stdout logfile
 #
-# The fourth line redirects stderr to awk, which colors the output red.
-#   The output is then piped to tee, which outputs to the terminal and
-#   to the stderr logfile.
+# The fourth line redirects stderr to awk, which colors the output red
+#   and flushes the buffer. The output is then piped to tee, which
+#   outputs to the terminal and to the stderr logfile.
 #
 # The end result of all of this is that we can see all output in the
 #   terminal (timestamped and with stderr colored red), and we get all of
 #   this same output in a combined logfile as well as stdour and stderr
 #   in their own respective logfiles.
 # TODO: timestamps are SOMETIMES colored for stderr, but not always -- why?
+# TODO: I'm not sure the above TODO is true anymore...
 time_output="/tmp/$USER/time_output"
-command /usr/bin/time --output="$time_output" --portability -- "$@" \
+/usr/bin/time --output="$time_output" --portability -- "$@" \
     &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; system("") }' | tee -a "$combined_log") \
     1> >(awk '{ print $0; system("") }' | tee -a "$stdout_log" >&1) \
     2> >(awk '{ print "\033[01;31m"$0"\033[0m" }; system("")' | tee -a "$stderr_log" >&2)
-# Save the return value of `command` (which is the return value from `time`,
-#   which is the return value from the _actual_ command)
+# Save the return value of `time` (which is the return value from the _actual_ command)
 cmd_ret_val=$?
 
 echo -e "---\nTiming information:" | tee -a "$stdout_log" "$stderr_log" "$combined_log"
 tee -a "$stdout_log" "$stderr_log" "$combined_log" < "$time_output"
 
-play_sound $cmd_ret_val &
-
-if [ $cmd_ret_val -eq 0 ]; then
-    say "SUCCESS! logging $1 has completed successfully"
-else
-    say "FAILURE! logging command $1 has failed, you sad, sad little man"
-fi
-
-
+# Alert based on the given command and its return code
+alert "$1" "$cmd_ret_val"
 
 # Return the value of the user's command
 exit $cmd_ret_val
