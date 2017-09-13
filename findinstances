@@ -1,0 +1,21 @@
+#!/bin/bash
+
+###
+# findinstances: Given a string to search for and an optional user,
+# print the matching process instances. If no user is given, processes
+# from all users are returned
+
+# Author: Thomas Chamberlin
+###
+
+if [ -n "$2" ]; then
+    pids=$(pgrep -f "$1" -U "$2")
+else
+    pids=$(pgrep -f "$1")
+fi
+
+if [ -n "$pids" ]; then
+    # Disable this because ps doesn't work of PIDs are quoted
+    # shellcheck disable=SC2086
+    ps -o user,pid,cmd $pids
+fi

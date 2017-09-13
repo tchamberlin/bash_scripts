@@ -1,0 +1,31 @@
+#!/bin/bash
+
+###
+# sshcd: ssh somewhere, then change directories (defaults to the current)
+
+# Author: Thomas Chamberlin
+###
+
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+    echo "usage: sshcd [user@]hostname [path]"
+    echo -e "\tpath defaults to ."
+    return 1
+fi
+
+if [ -n "$2" ]; then
+    path="$2"
+else
+    path="$(pwd)"
+fi
+
+# "-t forces ssh to allocate a virtual terminal even though you're running a command"
+# -- http://www.unix.com/302468503-post2.html
+# Not exactly sure why it's necessary, but it is. As for the command, it's pretty simple.
+# First, cd to the ORIGINAL working directory (the one that we were in when this function was called)
+# Then, open a new bash shell using MY bash profile
+# Note that we are using the --login flag -- this opens a "login" shell. If we
+# aren't in a login shell, monctrl doesn't work quite right
+# Also note that we are quoting ssh here in order to avoid an infinite loop due
+# to aliasing ssh=sshcd
+# shellcheck disable=SC2029
+"ssh" -t "$1" "cd $path; bash --login"

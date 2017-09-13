@@ -1,0 +1,45 @@
+#!/bin/bash
+
+if [ -z "$SUBLIME_TEXT" ]; then
+    echo "No SUBLIME_TEXT found; please set it to the path of the Sublime Text 3 binary!"
+    exit 1
+fi
+
+arg="$1"
+
+if [ "$arg" == "--kill" ] || [ "$arg" == "-k" ] ||
+    [ "$arg" == "--restart" ] || [ "$arg" == "-r" ]; then
+    # Shift off the flag, but only if it has been given (to avoid breaking
+    # commands passed to an already-running sublime instance)
+    shift
+    # Kill any sublime processes currently running
+    pkill -f sublime.text.3 -u "$USER"
+    # Save the exit code for the pkill command
+    pkill_code=$?
+    if [[ $pkill_code -eq 1 ]]; then
+        echo "Sublime is not running for $USER@$HOSTNAME"
+        exit 0
+    elif [[ $pkill_code -eq 1 ]]; then
+        echo "pkill syntax error"
+        exit 1
+    elif [[ $pkill_code -eq 2 ]]; then
+        echo "pkill fatal error"
+        exit 2
+    fi
+
+    # Restart sublime if we have been asked
+    if [ "$arg" == "--restart" ] || [ "$arg" == "-r" ]; then
+        nohup "$SUBLIME_TEXT" "$@" > /dev/null 2>&1 &
+    fi
+else
+    # If no flags given, then either...
+    if pgrep -f "sublime.text.3" > /dev/null; then
+        # ...Sublime is already running, and we just pass it the 
+        # given arguments
+        "$SUBLIME_TEXT" "$*"
+    else
+        # ...Sublime is not running, so start it in the background and
+        # pass it the given arguments
+        nohup "$SUBLIME_TEXT" "$@" > /dev/null 2>&1 &
+    fi
+fi
