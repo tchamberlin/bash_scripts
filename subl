@@ -17,8 +17,10 @@ if [ "$arg" == "--kill" ] || [ "$arg" == "-k" ] ||
     # Save the exit code for the pkill command
     pkill_code=$?
     if [[ $pkill_code -eq 1 ]]; then
-        echo "Sublime is not running for $USER@$HOSTNAME"
-        exit 0
+        if [ "$arg" == "--kill" ] || [ "$arg" == "-k" ]; then
+            echo "Sublime is not running for $USER@$HOSTNAME" >&2
+            exit 0
+        fi
     elif [[ $pkill_code -eq 1 ]]; then
         echo "pkill syntax error"
         exit 1
