@@ -1,7 +1,11 @@
 #!/bin/bash
 
-# Log the given command both to the console and to disk, with separate
+###
+# Author: Thomas Chamberlin
+
+# log: Log the given command both to the console and to disk, with separate
 # files for stdout and stderr
+###
 
 # If we have a failure in our pipe, return the error code for the failed
 # command, not of this function
@@ -25,9 +29,9 @@ alert() {
     local code; code="$2"
 
     local success_sound; success_sound=/usr/share/sounds/k3b_success1.wav
-    local success_sentence; success_sentence="SUCCESS logging $cmd has completed successfully"
+    local success_sentence; success_sentence="SUCCESS: logging command: $cmd has completed successfully"
     local failure_sound; failure_sound=/usr/share/sounds/k3b_error1.wav
-    local failure_sentence; failure_sentence="FAILURE logging command $cmd has failed, you sad, sad little man"
+    local failure_sentence; failure_sentence="FAILURE: logging command: $cmd has failed, you sad, sad little man"
 
     if [ "$code" -eq 0 ]; then
         local sound; sound=$success_sound
@@ -46,6 +50,7 @@ alert() {
         return 1
     fi
 
+    # Speak the given sentence on the local/physical computer
     echo "$sentence" | lcl festival --tts
 }
 
@@ -99,13 +104,11 @@ echo "---Logging the results of '$ $*' to '$log_dir/{$(basename "$stdout_log"),$
 #   terminal (timestamped and with stderr colored red), and we get all of
 #   this same output in a combined logfile as well as stdour and stderr
 #   in their own respective logfiles.
-# TODO: timestamps are SOMETIMES colored for stderr, but not always -- why?
-# TODO: I'm not sure the above TODO is true anymore...
 time_output="/tmp/$USER/time_output"
-/usr/bin/time --output="$time_output" --portability -- "$@" \
-    &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; system("") }' | tee -a "$combined_log") \
-    1> >(awk '{ print $0; system("") }' | tee -a "$stdout_log" >&1) \
-    2> >(awk '{ print "\033[01;31m"$0"\033[0m" }; system("")' | tee -a "$stderr_log" >&2)
+stdbuf -oL /usr/bin/time --output="$time_output" --portability -- "$@" \
+    &> >(stdbuf -oL awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' | stdbuf -oL tee -a "$combined_log") \
+    1> >(stdbuf -oL tee -a "$stdout_log" >&1) \
+    2> >(stdbuf -oL awk '{ print "\033[01;31m"$0"\033[0m" }' | stdbuf -oL tee -a "$stderr_log" >&2)
 # Save the return value of `time` (which is the return value from the _actual_ command)
 cmd_ret_val=$?
 

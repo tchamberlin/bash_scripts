@@ -1,8 +1,25 @@
 #!/bin/bash
-original_host=$(who am i | awk '{print $5}' | tr -d '()')
-if host "$original_host" &> /dev/null; then
+
+###
+# Author: Thomas Chamberlin
+
+# lcl: (Attempt to) Run the given command on the local (physical host)
+###
+
+# Get the "original host" -- that is, the host from which this ssh
+# session began.
+# NOTE: This will only work for ONE HOP -- if you have ssh'd more than once,
+# this will be incorrect (it will be the last host you ssh'd from, not the first)
+most_recent_host=$(echo $SSH_CLIENT | awk '{ print $1 }')
+if host "$most_recent_host" &> /dev/null; then
+    # If the most recent host is a valid host, assume that we are in an ssh
+    # session and execute the given command remotely
+
+    # We start a login shell here so that we ensure access to custom functions,
+    # etc. from .bash_profile
     # shellcheck disable=SC2029
-    ssh -q "$original_host" "cd $(pwd); bash --login -c \"$*\""
+    ssh -q "$most_recent_host" "cd $(pwd); bash --login -c \"$*\""
 else
+    # Otherwise just run locally
     "$@"
 fi
