@@ -82,28 +82,30 @@ echo "---Logging the results of '$ $*' to '$log_dir/{$(basename "$stdout_log"),$
 
 # Alright, what's going on here?
 # The first line passes every argument that was passed to this function
-#   to the `time` command
-#
-# The second line redirects all output streams to the awk command,
-#   which prepends the date/time to the line, then flushes the buffer with
-#   the system("") call. Flushing the buffer is important for accurate
+#   to the `time` command. The `time` command is run by `stdbuf`, which is
+#   set here to flush the buffer. Flushing the buffer is important for accurate
 #   timestamps, and for the output to be streamed smoothly instead of in
-#   buffered chunks. The results of the awk command are piped to the tee
+#   buffered chunks. The results of the `awk` command are piped to the tee
 #   command, which directs them to the terminal and to the combined
-#   logfile
+#   logfile.
 #
-# The third line redirects stdout to awk, which does nothing except flush
-#   the buffer and then pass it along to a tee command, which directs
-#   it to the terminal and to the stdout logfile
+# The second line redirects all output streams to the `awk` command,
+#   which prepends the date/time to the line. It then passes that to `tee`,
+#   which creates the "combined" output file.
+#   The buffer is also flushed using `stdbuf`
 #
-# The fourth line redirects stderr to awk, which colors the output red
-#   and flushes the buffer. The output is then piped to tee, which
-#   outputs to the terminal and to the stderr logfile.
+# The third line redirects stdout `tee` which outputs it to the terminal and
+#   to the stdout logfile
+#
+# The fourth line redirects stderr to `awk`, which colors the output red.
+#   The output is then piped to tee, which outputs to the terminal
+#   and to the stderr logfile. The buffer is also flushed using `stdbuf`
 #
 # The end result of all of this is that we can see all output in the
 #   terminal (timestamped and with stderr colored red), and we get all of
 #   this same output in a combined logfile as well as stdour and stderr
-#   in their own respective logfiles.
+#   in their own respective logfiles. We also get information about
+#   how long the process took to complete
 time_output="/tmp/$USER/time_output"
 stdbuf -oL /usr/bin/time --output="$time_output" --portability -- "$@" \
     &> >(stdbuf -oL awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' | stdbuf -oL tee -a "$combined_log") \
