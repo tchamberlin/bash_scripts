@@ -1,5 +1,17 @@
 #!/bin/bash
 
+###
+# Author: Thomas Chamberlin
+
+# subl: Wrapper around the `sublime_text` executable. Provides flags
+# to restart or kill all sublime processes (on the current host, for the
+# current user)
+
+# usage:
+#     $ subl [--kill|--restart]
+###
+
+
 if [ -z "$SUBLIME_TEXT" ]; then
     echo "No SUBLIME_TEXT found; please set it to the path of the Sublime Text 3 binary!"
     exit 1
