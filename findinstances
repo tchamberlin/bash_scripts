@@ -1,11 +1,15 @@
 #!/bin/bash
 
 ###
-# findinstances: Given a string to search for and an optional user,
-# print the matching process instances. If no user is given, processes
-# from all users are returned
-
 # Author: Thomas Chamberlin
+#
+# findinstances:
+#   Given a string to search for and an optional user, print the matching
+#   process instances. If no user is given, processes from all users
+#   are returned
+#
+# usage:
+#   findinstances process [user]
 ###
 
 if [ -n "$2" ]; then

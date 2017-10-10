@@ -2,15 +2,19 @@
 
 ###
 # Author: Thomas Chamberlin
-
+#
 # lcl: (Attempt to) Run the given command on the local (physical host)
+#
+# usage:
+#   lcl cmd
 ###
+
 
 # Get the "original host" -- that is, the host from which this ssh
 # session began.
 # NOTE: This will only work for ONE HOP -- if you have ssh'd more than once,
 # this will be incorrect (it will be the last host you ssh'd from, not the first)
-most_recent_host=$(echo $SSH_CLIENT | awk '{ print $1 }')
+most_recent_host=$(echo "$SSH_CLIENT" | awk '{ print $1 }')
 if host "$most_recent_host" &> /dev/null; then
     # If the most recent host is a valid host, assume that we are in an ssh
     # session and execute the given command remotely

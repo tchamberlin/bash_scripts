@@ -1,5 +1,16 @@
 #!/bin/bash
 
+###
+# Author: Thomas Chamberlin
+#
+# rmlog: Removes directories created by log.
+#
+# usage:
+#   rmlog [path]
+###
+
+
+# Gives access to prompt
 source bash_utils.sh
 
 if [ -n "$1" ]; then
@@ -17,26 +28,24 @@ for dir in $log_dirs; do
     non_log_files=$(find "$dir" -mindepth 1 | grep -vE "$log_file_pattern")
     if [ -n "$non_log_files" ]; then
         non_log_files_found=true
-        for file in $non_log_files; do
-            echo "  $file"
-        done
+        echo "$non_log_files"
     fi
 done
 
 if [ -n "$non_log_files_found" ]; then
-    echo "WARNING: The above files were not created by log! They will be deleted if you continue!" >&2
+    log_warning "The above files were not created by log! They will be deleted if you continue!"
 fi
 
 if [ -z "$log_dirs" ]; then
-    echo "No log directories found in '$path'!"
+    log_warning "No log directories found in '$path'!"
     exit 0
 fi
 
-echo "The following directories (and ALL of their contents) will be deleted: "
-for file in $log_dirs; do
-    echo "  $file"
-done
+log_info "The following directories (and ALL of their contents) will be deleted: "
+echo "$log_dirs"
 
 prompt "Continue?"
 
-rm -rf "$log_dirs"
+for log_dir in $log_dirs; do
+    rm --recursive --verbose --force -- "$log_dir"
+done

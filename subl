@@ -4,11 +4,11 @@
 # Author: Thomas Chamberlin
 
 # subl: Wrapper around the `sublime_text` executable. Provides flags
-# to restart or kill all sublime processes (on the current host, for the
-# current user)
+#       to restart or kill all sublime processes (on the current host, for the
+#       current user)
 
 # usage:
-#     $ subl [--kill|--restart]
+#   subl [--kill|--restart]
 ###
 
 
@@ -48,7 +48,7 @@ if [ "$arg" == "--kill" ] || [ "$arg" == "-k" ] ||
 else
     # If no flags given, then either...
     if pgrep -f "sublime.text.3" > /dev/null; then
-        # ...Sublime is already running, and we just pass it the 
+        # ...Sublime is already running, and we just pass it the
         # given arguments
         "$SUBLIME_TEXT" "$*"
     else

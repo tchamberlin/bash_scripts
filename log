@@ -2,10 +2,14 @@
 
 ###
 # Author: Thomas Chamberlin
-
+#
 # log: Log the given command both to the console and to disk, with separate
-# files for stdout and stderr
+#      files for stdout and stderr
+#
+# usage:
+#   log cmd
 ###
+
 
 # If we have a failure in our pipe, return the error code for the failed
 # command, not of this function

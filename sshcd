@@ -1,9 +1,12 @@
 #!/bin/bash
 
 ###
-# sshcd: ssh somewhere, then change directories (defaults to the current)
-
 # Author: Thomas Chamberlin
+#
+# sshcd: ssh somewhere, then change directories (defaults to the current)
+#
+# usage:
+#   sshcd [user@]hostname [path]
 ###
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
