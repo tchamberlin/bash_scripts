@@ -1,0 +1,40 @@
+#!/bin/bash
+
+###
+# safemake: A transparent wrapper around 'make' which analyzes its output
+# for failures and summarizes the results.
+#
+# Author: Thomas Chamberlin
+###
+
+red() {
+    echo "\033[01;31m$1\033[0m"
+}
+
+now=$(date +%Y-%m-%d_%T)
+outfile="./make.$now.out"
+
+# Run make
+# unbuffer allows us to preserve colors in the make output
+if ! unbuffer make "$@" 2>&1 | tee "$outfile"; then
+    # Check for failure of the make command itself. This is actually rare for the
+    # M&C system, but we still need to check
+    echo -e "$(red "MAKE HAS RETURNED FAILURE!")" >&2
+    failure=true
+fi
+
+# Check the output for errors. We assume that there are two indicators of an error:
+# 1. gcc errors, which take the form "error:"
+# 2. make errors, which always contain the string '***'
+if errors=$(grep -nE -C 5 --color=always '(***|error:)' < "$outfile"); then
+    echo -e "$(red "ONE OR MORE MAKE ERRORS HAVE OCCURRED:")" >&2
+    failure=true
+fi
+
+if [ -n "$failure" ]; then
+    echo "$errors" >&2
+else
+    echo "'$0 $*' HAS COMPLETED SUCCESSFULLY"
+fi
+
+echo "Results are in: $outfile"
