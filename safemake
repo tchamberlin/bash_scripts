@@ -11,6 +11,42 @@ red() {
     echo "\033[01;31m$1\033[0m"
 }
 
+check_make() {
+# Check the output for errors.
+
+    local output
+    if [ -z "$1" ]; then
+        echo "usage: check_make MAKE_OUTPUT_FILE" >&2
+        return 1
+    else
+        output="$1"
+    fi
+
+    # Here are the indicators we are looking for:
+
+    # For convenience, we define our patterns as an easily readable and editable array
+    patterns_array=(
+        # gcc errors, which take the form "error:"
+        'error:'
+        # make errors. These appear to take two forms, so we accommodate both here
+        '(make.*\*\*\*|make.*Error [0-9]+)'
+        # This is a specific sparrow error that crops up:
+        'Error: Must be user monctrl to install sparrow'
+    )
+    # We then must convert it to a string, delimited by newlines
+    patterns=$(printf "%s\n" "${patterns_array[@]}")
+
+    # We need to force color because otherwise grep will detect that it is in a pipe
+    # and turn them off
+    grep \
+        --extended-regexp \
+        --regexp="$patterns" \
+        --line-number \
+        --context=5 \
+        --color=always \
+        < "$output"
+}
+
 now=$(date +%Y-%m-%d_%T)
 outfile="./make.$now.out"
 
@@ -23,18 +59,19 @@ if ! unbuffer make "$@" 2>&1 | tee "$outfile"; then
     failure=true
 fi
 
-# Check the output for errors. We assume that there are two indicators of an error:
-# 1. gcc errors, which take the form "error:"
-# 2. make errors, which always contain the string '***'
-if errors=$(grep -nE -C 5 --color=always '(***|error:)' < "$outfile"); then
-    echo -e "$(red "ONE OR MORE MAKE ERRORS HAVE OCCURRED:")" >&2
+# Check for errors, and store them in 'errors'
+if errors=$(check_make "$outfile"); then
+    echo "---"
+    echo -e "$(red "ONE OR MORE MAKE ERRORS MAY HAVE OCCURRED:")" >&2
     failure=true
 fi
 
 if [ -n "$failure" ]; then
     echo "$errors" >&2
+    echo "Results are in: $outfile"
+    exit 1
 else
     echo "'$0 $*' HAS COMPLETED SUCCESSFULLY"
+    echo "Results are in: $outfile"
 fi
 
-echo "Results are in: $outfile"
