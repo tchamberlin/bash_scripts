@@ -7,6 +7,8 @@
 # Author: Thomas Chamberlin
 ###
 
+set -o pipefail
+
 red() {
     echo "\033[01;31m$1\033[0m"
 }
