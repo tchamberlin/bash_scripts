@@ -1,0 +1,16 @@
+#!/bin/bash
+
+if [ -z "$MY_WORKSTATION" ]; then
+    echo "You must export MY_WORKSTATION -- this is the host on which the project will be opened" >&2
+    return 1
+fi
+if [ $# -eq 0 ]; then
+    echo "usage: $ do_local CMD [ARG ... ARG]" >&2
+    return 1
+fi
+if [ "$(hostname)" != "$MY_WORKSTATION" ]; then
+    ssh -q "$MY_WORKSTATION" "bash --login -c \"cd $(pwd) && echo --- Executing '$ $* on \$(hostname)' --- >&2 && DISPLAY=:0 $*\""
+else
+    echo "--- Executing '$ $*' locally (on $(hostname)) ---" >&2
+    "$@"
+fi

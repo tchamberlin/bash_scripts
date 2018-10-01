@@ -12,7 +12,7 @@
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
     echo "usage: sshcd [user@]hostname [path]"
     echo -e "\tpath defaults to ."
-    return 1
+    exit 1
 fi
 
 if [ -n "$2" ]; then
