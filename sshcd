@@ -31,4 +31,4 @@ fi
 # Also note that we are quoting ssh here in order to avoid an infinite loop due
 # to aliasing ssh=sshcd
 # shellcheck disable=SC2029
-"ssh" -t "$1" "cd $path; bash --login"
+"ssh" -qt "$1" "cd $path; bash --login"
