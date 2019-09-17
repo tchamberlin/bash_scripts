@@ -1,0 +1,21 @@
+#!/bin/bash
+
+description="Show unmerged branches."
+usage="usage: show_unmerged [BRANCH]"
+_help="\tBRANCH: show branches not merged into this branch. Defaults to current branch."
+
+for i in "$@"; do
+  case "$i" in
+    -h|--help) echo -e "$description\n$usage\n$_help"; exit 0;;
+  esac
+done
+
+if [ -n "$1" ]; then
+    branch="$1"
+else
+    # The current branch
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+fi
+
+# all branches not fully merged into given branch | sans ampersand | sans whitespace
+git branch --contains "$branch" | sed 's/*//g' | awk '{print $1}'
