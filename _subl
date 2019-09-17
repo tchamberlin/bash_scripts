@@ -10,10 +10,11 @@ Provides flags to restart or kill all sublime processes
 from __future__ import print_function
 import argparse
 import getpass
+import os
+import re
 import subprocess
 import sys
 import time
-
 
 def kill():
     """Kill Sublime Text for current user"""
@@ -36,25 +37,50 @@ def kill():
 
 def sublime(args):
     """Start Sublime Text with given args"""
-
     if args:
-        args = ["sublime_text"].extend(args)
+        args = ["sublime_text"] + args
     else:
         args = ["sublime_text"]
-
     try:
         subprocess.check_call(args)
     except OSError:
-        print("Could not find Sublime Text executable 'sublime_text'! Check your PATH!")
+        print("Could not find Sublime Text executable 'sublime_text'! Check your PATH!", file=sys.stderr)
         return False
 
     return True
 
+def project_is_already_open(project_path):
+    match = re.search(r"(.*)\.sublime-project", project_path)
+
+    if not match:
+        print("Could not parse project name {}".format(project_path), file=sys.stderr)
+        return False
+
+    project_name = os.path.basename(match.groups()[0])
+
+    try:
+        wmctrl_output = subprocess.check_output(["wmctrl", "-l"]).decode("UTF-8")
+    except subprocess.CalledProcessError as error:
+        print("wmctrl failed!", error, file=sys.stderr)
+        return False
+    else:
+        open_projects = re.findall(r"\((\w+)\) - Sublime Text", wmctrl_output)
+        if project_name in open_projects:
+            return True
+
+    return False
 
 def main():
     """Main"""
 
     args, sublime_args = parse_args()
+
+    if args.project:
+        if not project_is_already_open(args.project):
+            sublime_args.extend(["--project", args.project])
+        else:
+            print("Project {} already open".format(args.project), file=sys.stderr)
+            sys.exit(1)
 
     if args.kill:
         try:
@@ -101,6 +127,7 @@ def parse_args():
         action="store_true",
         help="Show sublime_text help message (instead of this one)",
     )
+    group.add_argument("-p", "--project")
     args, rest = parser.parse_known_args()
 
     return args, rest
