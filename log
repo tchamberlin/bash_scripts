@@ -49,12 +49,25 @@ excerpt() {
     fi
 }
 
+# Heirloom mailx sends a body containing control characters as an attachment.
+# Strip color codes, reduce \r-updated progress lines to their final state
+# (keeping the timestamp), drop other control characters, and drop invalid
+# UTF-8 left by the excerpt's byte cuts.
+clean_for_mail() {
+    LC_ALL=C sed \
+        -e 's/\x1b\[[0-9;?]*[[:alpha:]]//g' \
+        -e 's/\r$//' \
+        -e 's/^\(\[[^]]*\] \).*\r/\1/' |
+        LC_ALL=C tr -d '\000-\010\013-\037\177' |
+        iconv -c -f UTF-8 -t UTF-8
+}
+
 # Runs detached: executes the command, logs it locally, archives the log to
 # $logdir, and emails a summary.
 worker() {
     set +e
     # Keep our helpers out of the logged command's environment
-    export -n -f stamp excerpt worker
+    export -n -f stamp excerpt clean_for_mail worker
     local local_log=$1 logdir=$2 recipient=$3 host=$4 fqdn=$5
     shift 5
 
@@ -162,7 +175,7 @@ worker() {
                 fi
 
                 excerpt "$logfile"
-            } | mailx -s "[$result] $host: ${cmd:0:200}" "$recipient"
+            } | clean_for_mail | mailx -s "[$result] $host: ${cmd:0:200}" "$recipient"
         } 2>&1
     )
     mail_status=$?
@@ -182,7 +195,7 @@ logdir=${LOG_DIR:-"/home/sandboxes/$user/logs"}
 host=$(hostname -s)
 fqdn=$(hostname -f 2>/dev/null) && [[ $fqdn == *.* ]] || fqdn=$host
 
-for tool in nohup rsync mailx stdbuf setsid mkfifo; do
+for tool in nohup rsync mailx stdbuf setsid mkfifo iconv; do
     command -v "$tool" >/dev/null || {
         echo "Missing required command: $tool" >&2
         exit 1
@@ -191,7 +204,7 @@ done
 
 local_log=$(mktemp "/var/tmp/${user}_${host}_$(date +%Y%m%dT%H%M%S).XXXXXX.log")
 
-export -f stamp excerpt worker
+export -f stamp excerpt clean_for_mail worker
 # shellcheck disable=SC2016  # expanded by the worker shell, not here
 nohup bash -c 'worker "$@"' log-worker \
     "$local_log" "$logdir" "$recipient" "$host" "$fqdn" "$@" \
