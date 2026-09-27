@@ -73,9 +73,15 @@ worker() {
     # The command and logger run in the background, joined by a FIFO, so
     # that the TERM trap below can fire while we wait on them.
     mkfifo -- "$fifo"
-    while IFS= read -r line || [[ -n $line ]]; do
-        stamp "$line"
-    done < "$fifo" >> "$local_log" 2>&1 &
+    {
+        # The logger shares the worker's argv, so `pkill -f the_command` hits
+        # it too. Ignore TERM; it exits on its own once the command's output
+        # closes.
+        trap '' TERM
+        while IFS= read -r line || [[ -n $line ]]; do
+            stamp "$line"
+        done
+    } < "$fifo" >> "$local_log" 2>&1 &
     logger_pid=$!
 
     # Line-buffer stdout so the live log and timestamps track the command.
