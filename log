@@ -1,56 +1,195 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ###
 # Author: Thomas Chamberlin
 #
-# log: Log the given command both to the console and to disk, with separate
-#      files for stdout and stderr
+# log: Run the given command detached (survives logout), with timestamped
+#      stdout+stderr written to a local log. When it finishes, the log is
+#      moved to $LOG_DIR and a summary is emailed to $LOG_EMAIL. If the move
+#      fails, the log stays in /var/tmp and the email says where.
 #
 # usage:
-#   log cmd
+#   log cmd [arg ...]
+#
+# environment:
+#   LOG_DIR    archive directory (default: /home/sandboxes/$USER/logs)
+#   LOG_EMAIL  summary recipient (default: $USER)
 ###
 
+set -euo pipefail
 
-# If we have a failure in our pipe, return the error code for the failed
-# command, not of this function
-set -o pipefail
-# Execute cleanup when program exits, under whatever conditions that may be
-trap cleanup EXIT
+if (( $# == 0 )); then
+    echo "Usage: log COMMAND [ARGUMENT ...]" >&2
+    exit 2
+fi
 
-cleanup() {
-    if [ -f "$time_output" ]; then
-        rm "$time_output"
+stamp() {
+    printf '[%(%Y-%m-%dT%H:%M:%S%z)T] %s\n' -1 "$*"
+}
+
+# Short logs are printed whole; long ones as the first and last 50 lines,
+# each capped at 32 KiB.
+excerpt() {
+    local logfile=$1 size lines
+    size=$(stat -c %s -- "$logfile")
+    lines=$(wc -l < "$logfile")
+    if (( lines <= 100 && size <= 65536 )); then
+        printf '\n--- Full log ---\n'
+        cat -- "$logfile"
+    elif (( lines <= 100 )); then
+        # Few but very long lines: the end matters most
+        printf '\n--- Last 64 KiB ---\n'
+        tail -c 65536 -- "$logfile"
+    else
+        printf '\n--- First 50 lines (at most 32 KiB) ---\n'
+        head -n 50 -- "$logfile" | head -c 32768
+        printf '\n--- ... ---\n'
+        printf '\n--- Last 50 lines (at most 32 KiB) ---\n'
+        tail -c 32768 -- "$logfile" | tail -n 50
     fi
 }
 
+# Runs detached: executes the command, logs it locally, archives the log to
+# $logdir, and emails a summary.
+worker() {
+    set +e
+    # Keep our helpers out of the logged command's environment
+    export -n -f stamp excerpt worker
+    local local_log=$1 logdir=$2 recipient=$3 host=$4 fqdn=$5
+    shift 5
 
-# Check that there is at least one argument given
-if [[ $# -eq 0 ]]; then
-    echo "usage: $(basename "$0") command" >&2
-    exit 1
-fi
+    local cmd status logging_status start duration
+    local fifo=$local_log.fifo logger_pid cmd_pid stopped=
+    printf -v cmd '%q ' "$@"
+    cmd=${cmd% }
+    start=$SECONDS
 
-# Get the current time in a pretty format
-now() {
-    date +"%T.%3N"
+    {
+        stamp "START: $cmd"
+        stamp "Host: $fqdn"
+        stamp "Working directory: $PWD"
+    } >> "$local_log"
+
+    # The command and logger run in the background, joined by a FIFO, so
+    # that the TERM trap below can fire while we wait on them.
+    mkfifo -- "$fifo"
+    while IFS= read -r line || [[ -n $line ]]; do
+        stamp "$line"
+    done < "$fifo" >> "$local_log" 2>&1 &
+    logger_pid=$!
+
+    # Line-buffer stdout so the live log and timestamps track the command.
+    # setsid gives the command its own process group, so a stop request
+    # reaches everything it spawned.
+    setsid -w stdbuf -oL "$@" </dev/null > "$fifo" 2>&1 &
+    cmd_pid=$!
+
+    # Stopping the worker stops the command, but still archives and emails
+    trap 'stopped=1; kill -TERM -- "-$cmd_pid" 2>/dev/null || kill -TERM "$cmd_pid"' TERM
+    wait "$cmd_pid"
+    status=$?
+    # A trapped signal interrupts wait early; keep waiting for the real exit
+    while kill -0 "$cmd_pid" 2>/dev/null; do
+        wait "$cmd_pid"
+        status=$?
+    done
+    trap - TERM
+
+    wait "$logger_pid"
+    logging_status=$?
+    rm -f -- "$fifo"
+    duration=$(( SECONDS - start ))
+
+    {
+        [[ -n $stopped ]] && stamp "STOPPED: worker received SIGTERM"
+        stamp "END: command exit $status; logging exit $logging_status"
+    } >> "$local_log"
+
+    # The log is now closed. Publish it, retaining the source on failure.
+    local archive_error archive_status logfile log_location archive_note result
+    archive_error=$(
+        {
+            mkdir -p -- "$logdir" &&
+            rsync --remove-source-files -- "$local_log" "$logdir/"
+        } 2>&1
+    )
+    archive_status=$?
+
+    if (( archive_status == 0 )); then
+        logfile="$logdir/${local_log##*/}"
+        log_location=$logfile
+        archive_note="Archived to NFS"
+    else
+        logfile=$local_log
+        log_location="$fqdn:$local_log"
+        archive_note="ARCHIVE FAILED: log retained on $fqdn"
+    fi
+
+    if [[ -n $stopped ]]; then
+        result="STOPPED ($status)"
+    elif (( status != 0 )); then
+        result="FAILED ($status)"
+    elif (( logging_status != 0 )); then
+        result="LOGGING FAILED"
+    elif (( archive_status != 0 )); then
+        result="ARCHIVE FAILED"
+    else
+        result=OK
+    fi
+
+    local mail_error mail_status
+    mail_error=$(
+        {
+            {
+                printf 'Command: %.4096s\n' "$cmd"
+                printf 'Host: %s\n' "$fqdn"
+                printf 'Duration: %dh%02dm%02ds\n' \
+                    $(( duration / 3600 )) $(( duration % 3600 / 60 )) $(( duration % 60 ))
+                printf 'Command exit status: %s\n' "$status"
+                printf 'Logging exit status: %s\n' "$logging_status"
+                printf 'Archive: %s\n' "$archive_note"
+                printf 'Log: %s\n' "$log_location"
+                printf 'Log size: %s bytes\n' "$(stat -c %s -- "$logfile")"
+
+                if (( archive_status != 0 )); then
+                    printf '\nArchive error:\n%.4096s\n' "$archive_error"
+                fi
+
+                excerpt "$logfile"
+            } | mailx -s "[$result] $host: ${cmd:0:200}" "$recipient"
+        } 2>&1
+    )
+    mail_status=$?
+
+    if (( mail_status != 0 )); then
+        printf 'Email failed with exit %s\n%s\nLog: %s\n' \
+            "$mail_status" "$mail_error" "$log_location" \
+            > "$logfile.mail-error"
+    fi
+
+    return "$status"
 }
 
+user=${USER:-$(id -un)}
+recipient=${LOG_EMAIL:-"$user"}
+logdir=${LOG_DIR:-"/home/sandboxes/$user/logs"}
+host=$(hostname -s)
+fqdn=$(hostname -f 2>/dev/null) && [[ $fqdn == *.* ]] || fqdn=$host
 
+for tool in nohup rsync mailx stdbuf setsid mkfifo; do
+    command -v "$tool" >/dev/null || {
+        echo "Missing required command: $tool" >&2
+        exit 1
+    }
+done
 
-start="$(now)"
-/usr/bin/time --portability -- "$@" \
-# Save the return value of `time` (which is the return value from the _actual_ command)
-cmd_ret_val=$?
-end="$(now)"
+local_log=$(mktemp "/var/tmp/${user}_${host}_$(date +%Y%m%dT%H%M%S).XXXXXX.log")
 
-if [[ $cmd_ret_val -eq 0 ]]; then
-    status="SUCCESS"
-else
-    status="FAILURE"
-fi
-echo "${status}: ${start} to ${end}" >&2
+export -f stamp excerpt worker
+# shellcheck disable=SC2016  # expanded by the worker shell, not here
+nohup bash -c 'worker "$@"' log-worker \
+    "$local_log" "$logdir" "$recipient" "$host" "$fqdn" "$@" \
+    </dev/null >/dev/null 2>&1 &
 
-# Alert based on the given command and its return code
-
-# Return the value of the user's command
-exit $cmd_ret_val
+printf 'Worker PID: %s (stop with: kill %s)\nLive local log: %s\nFinal NFS log: %s/%s\n' \
+    "$!" "$!" "$local_log" "$logdir" "${local_log##*/}"
